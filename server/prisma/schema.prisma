@@ -1,0 +1,319 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+enum UserRole {
+  student
+  mentor
+  admin
+}
+
+enum AppointmentStatus {
+  pending
+  confirmed
+  completed
+  cancelled
+}
+
+enum TicketCategory {
+  academic
+  technical
+  general
+}
+
+enum TicketPriority {
+  low
+  medium
+  high
+  urgent
+}
+
+enum TicketStatus {
+  open
+  in_progress
+  resolved
+  closed
+}
+
+enum TaskStatus {
+  draft
+  published
+  archived
+}
+
+enum SubmissionStatus {
+  submitted
+  under_review
+  evaluated
+  returned
+}
+
+enum ChatRoomType {
+  direct
+  group
+}
+
+enum MessageType {
+  text
+  file
+  system
+}
+
+enum JobType {
+  full_time
+  part_time
+  internship
+  contract
+}
+
+enum JobAppStatus {
+  applied
+  shortlisted
+  rejected
+  hired
+}
+
+enum NotificationType {
+  appointment
+  ticket
+  task
+  job
+  chat
+  system
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  passwordHash  String   @map("password_hash")
+  fullName      String   @map("full_name")
+  avatarUrl     String?  @map("avatar_url")
+  role          UserRole @default(student)
+  phone         String?
+  bio           String?
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  studentAppointments  Appointment[]    @relation("StudentAppointments")
+  mentorAppointments   Appointment[]    @relation("MentorAppointments")
+  createdTickets       Ticket[]         @relation("TicketCreator")
+  assignedTickets      Ticket[]         @relation("TicketAssignee")
+  ticketMessages       TicketMessage[]
+  createdTasks         Task[]           @relation("TaskCreator")
+  submissions          TaskSubmission[] @relation("SubmissionStudent")
+  evaluations          TaskSubmission[] @relation("SubmissionEvaluator")
+  chatRoomMembers      ChatRoomMember[]
+  chatMessages         ChatMessage[]
+  postedJobs           JobPost[]
+  jobApplications      JobApplication[]
+  notifications        Notification[]
+
+  @@map("users")
+}
+
+model Appointment {
+  id           String            @id @default(cuid())
+  studentId    String            @map("student_id")
+  mentorId     String            @map("mentor_id")
+  title        String
+  description  String?
+  scheduledAt  DateTime          @map("scheduled_at")
+  durationMin  Int               @default(30) @map("duration_min")
+  status       AppointmentStatus @default(pending)
+  meetingLink  String?           @map("meeting_link")
+  notes        String?
+  createdAt    DateTime          @default(now()) @map("created_at")
+  updatedAt    DateTime          @updatedAt @map("updated_at")
+
+  student User @relation("StudentAppointments", fields: [studentId], references: [id], onDelete: Cascade)
+  mentor  User @relation("MentorAppointments", fields: [mentorId], references: [id], onDelete: Cascade)
+
+  @@index([studentId])
+  @@index([mentorId])
+  @@index([scheduledAt])
+  @@map("appointments")
+}
+
+model Ticket {
+  id          String         @id @default(cuid())
+  studentId   String         @map("student_id")
+  assignedTo  String?        @map("assigned_to")
+  title       String
+  description String
+  category    TicketCategory @default(general)
+  priority    TicketPriority @default(medium)
+  status      TicketStatus   @default(open)
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  student    User            @relation("TicketCreator", fields: [studentId], references: [id], onDelete: Cascade)
+  assignee   User?           @relation("TicketAssignee", fields: [assignedTo], references: [id], onDelete: SetNull)
+  messages   TicketMessage[]
+
+  @@index([studentId])
+  @@index([status])
+  @@map("tickets")
+}
+
+model TicketMessage {
+  id            String   @id @default(cuid())
+  ticketId      String   @map("ticket_id")
+  senderId      String   @map("sender_id")
+  message       String
+  attachmentUrl String?  @map("attachment_url")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  sender User   @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+  @@map("ticket_messages")
+}
+
+model Task {
+  id            String     @id @default(cuid())
+  createdBy     String     @map("created_by")
+  title         String
+  description   String
+  instructions  String?
+  dueDate       DateTime?  @map("due_date")
+  maxScore      Int        @default(100) @map("max_score")
+  attachmentUrl String?    @map("attachment_url")
+  status        TaskStatus @default(draft)
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+
+  creator     User             @relation("TaskCreator", fields: [createdBy], references: [id], onDelete: Cascade)
+  submissions TaskSubmission[]
+
+  @@index([dueDate])
+  @@map("tasks")
+}
+
+model TaskSubmission {
+  id          String           @id @default(cuid())
+  taskId      String           @map("task_id")
+  studentId   String           @map("student_id")
+  fileUrl     String           @map("file_url")
+  notes       String?
+  score       Int?
+  feedback    String?
+  evaluatedBy String?          @map("evaluated_by")
+  status      SubmissionStatus @default(submitted)
+  submittedAt DateTime         @default(now()) @map("submitted_at")
+  evaluatedAt DateTime?        @map("evaluated_at")
+
+  task      Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  student   User @relation("SubmissionStudent", fields: [studentId], references: [id], onDelete: Cascade)
+  evaluator User? @relation("SubmissionEvaluator", fields: [evaluatedBy], references: [id], onDelete: SetNull)
+
+  @@unique([taskId, studentId])
+  @@index([taskId])
+  @@index([studentId])
+  @@map("task_submissions")
+}
+
+model ChatRoom {
+  id        String       @id @default(cuid())
+  name      String?
+  type      ChatRoomType @default(direct)
+  createdAt DateTime     @default(now()) @map("created_at")
+
+  members  ChatRoomMember[]
+  messages ChatMessage[]
+
+  @@map("chat_rooms")
+}
+
+model ChatRoomMember {
+  id       String   @id @default(cuid())
+  roomId   String   @map("room_id")
+  userId   String   @map("user_id")
+  joinedAt DateTime @default(now()) @map("joined_at")
+
+  room ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@map("chat_room_members")
+}
+
+model ChatMessage {
+  id        String      @id @default(cuid())
+  roomId    String      @map("room_id")
+  senderId  String      @map("sender_id")
+  content   String
+  type      MessageType @default(text)
+  fileUrl   String?     @map("file_url")
+  isRead    Boolean     @default(false) @map("is_read")
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  room   ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  sender User     @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, createdAt])
+  @@map("chat_messages")
+}
+
+model JobPost {
+  id           String    @id @default(cuid())
+  postedBy     String    @map("posted_by")
+  title        String
+  company      String
+  location     String?
+  type         JobType   @default(full_time)
+  description  String
+  requirements String?
+  salaryRange  String?   @map("salary_range")
+  applyUrl     String?   @map("apply_url")
+  isActive     Boolean   @default(true) @map("is_active")
+  deadline     DateTime?
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  poster       User             @relation(fields: [postedBy], references: [id], onDelete: Cascade)
+  applications JobApplication[]
+
+  @@index([isActive, createdAt])
+  @@map("job_posts")
+}
+
+model JobApplication {
+  id          String       @id @default(cuid())
+  jobId       String       @map("job_id")
+  studentId   String       @map("student_id")
+  resumeUrl   String       @map("resume_url")
+  coverLetter String?      @map("cover_letter")
+  status      JobAppStatus @default(applied)
+  appliedAt   DateTime     @default(now()) @map("applied_at")
+
+  job     JobPost @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  student User    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, studentId])
+  @@index([jobId])
+  @@map("job_applications")
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String           @map("user_id")
+  title     String
+  message   String
+  type      NotificationType
+  refId     String?          @map("ref_id")
+  isRead    Boolean          @default(false) @map("is_read")
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead, createdAt])
+  @@map("notifications")
+}
