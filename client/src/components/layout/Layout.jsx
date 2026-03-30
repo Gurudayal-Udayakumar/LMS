@@ -3,6 +3,7 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useAuthStore, useNotificationStore } from '../../stores/authStore';
 import { connectSocket, disconnectSocket, getSocket } from '../../socket';
 import { getInitials, timeAgo } from '../../utils/helpers';
+import { useTheme } from '../../hooks/useTheme';
 import api from '../../services/api';
 
 export default function Layout() {
@@ -11,6 +12,7 @@ export default function Layout() {
   const [showNotifs, setShowNotifs] = useState(false);
   const notifRef = useRef(null);
   const navigate = useNavigate();
+  const { theme, toggleTheme } = useTheme();
 
   useEffect(() => {
     // Load notifications
@@ -99,6 +101,9 @@ export default function Layout() {
         <header className="page-header">
           <h1 id="page-title"></h1>
           <div className="header-actions">
+            <button className="theme-toggle" onClick={toggleTheme} title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'} id="theme-toggle">
+              <span className="material-icons-round">{theme === 'light' ? 'dark_mode' : 'light_mode'}</span>
+            </button>
             <div ref={notifRef} style={{ position: 'relative' }}>
               <button className="notif-bell" onClick={() => setShowNotifs(!showNotifs)} id="notification-bell">
                 <span className="material-icons-round">notifications</span>
