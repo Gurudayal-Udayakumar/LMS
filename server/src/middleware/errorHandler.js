@@ -4,11 +4,19 @@ const errorHandler = (err, req, res, next) => {
     console.error(err.stack);
   }
 
-  // Prisma errors
-  if (err.code === 'P2002') {
+  // MongoDB duplicate key error
+  if (err.code === 11000) {
     return res.status(409).json({ error: 'A record with this value already exists' });
   }
-  if (err.code === 'P2025') {
+
+  // Mongoose validation errors
+  if (err.name === 'ValidationError') {
+    const details = Object.values(err.errors).map(e => ({ field: e.path, message: e.message }));
+    return res.status(400).json({ error: 'Validation failed', details });
+  }
+
+  // Mongoose CastError (invalid ObjectId)
+  if (err.name === 'CastError' && err.kind === 'ObjectId') {
     return res.status(404).json({ error: 'Record not found' });
   }
 

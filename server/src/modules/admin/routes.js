@@ -1,7 +1,11 @@
 const express = require('express');
 const { z } = require('zod');
 const bcrypt = require('bcryptjs');
-const prisma = require('../../config/database');
+const User = require('../../models/User');
+const Ticket = require('../../models/Ticket');
+const Task = require('../../models/Task');
+const JobPost = require('../../models/JobPost');
+const Appointment = require('../../models/Appointment');
 const { authenticate, authorize } = require('../../middleware/auth');
 
 const router = express.Router();
@@ -11,32 +15,23 @@ router.use(authorize('admin'));
 // GET /api/admin/users
 router.get('/users', async (req, res, next) => {
   try {
-    const { role, search, cursor, limit = 30 } = req.query;
+    const { role, search, page = 1, limit = 30 } = req.query;
     const where = {};
     if (role) where.role = role;
     if (search) {
-      where.OR = [
-        { fullName: { contains: search } },
-        { email: { contains: search } },
+      where.$or = [
+        { fullName: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
       ];
     }
-
-    const users = await prisma.user.findMany({
-      where,
-      take: parseInt(limit),
-      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
-      orderBy: { createdAt: 'desc' },
-      select: {
-        id: true, email: true, fullName: true, role: true,
-        phone: true, isActive: true, createdAt: true, avatarUrl: true,
-      },
-    });
-
-    const total = await prisma.user.count({ where });
-    res.json({ data: users, total });
-  } catch (err) {
-    next(err);
-  }
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const users = await User.find(where)
+      .sort({ createdAt: -1 }).skip(skip).limit(parseInt(limit))
+      .select('email fullName role phone isActive createdAt avatarUrl').lean();
+    const total = await User.countDocuments(where);
+    const data = users.map(u => ({ ...u, id: u._id, _id: undefined, __v: undefined }));
+    res.json({ data, total });
+  } catch (err) { next(err); }
 });
 
 // PATCH /api/admin/users/:id/role
@@ -44,15 +39,10 @@ router.patch('/users/:id/role', async (req, res, next) => {
   try {
     const schema = z.object({ role: z.enum(['student', 'mentor', 'admin']) });
     const data = schema.parse(req.body);
-    const user = await prisma.user.update({
-      where: { id: req.params.id },
-      data: { role: data.role },
-      select: { id: true, email: true, fullName: true, role: true },
-    });
-    res.json(user);
-  } catch (err) {
-    next(err);
-  }
+    const user = await User.findByIdAndUpdate(req.params.id, { role: data.role }, { new: true })
+      .select('email fullName role').lean();
+    res.json({ ...user, id: user._id });
+  } catch (err) { next(err); }
 });
 
 // PATCH /api/admin/users/:id/status
@@ -60,75 +50,42 @@ router.patch('/users/:id/status', async (req, res, next) => {
   try {
     const schema = z.object({ isActive: z.boolean() });
     const data = schema.parse(req.body);
-    const user = await prisma.user.update({
-      where: { id: req.params.id },
-      data: { isActive: data.isActive },
-      select: { id: true, email: true, fullName: true, isActive: true },
-    });
-    res.json(user);
-  } catch (err) {
-    next(err);
-  }
+    const user = await User.findByIdAndUpdate(req.params.id, { isActive: data.isActive }, { new: true })
+      .select('email fullName isActive').lean();
+    res.json({ ...user, id: user._id });
+  } catch (err) { next(err); }
 });
 
-// POST /api/admin/users — Create user with specific role
+// POST /api/admin/users
 router.post('/users', async (req, res, next) => {
   try {
     const schema = z.object({
-      email: z.string().email(),
-      password: z.string().min(6),
-      fullName: z.string().min(2),
-      role: z.enum(['student', 'mentor', 'admin']),
+      email: z.string().email(), password: z.string().min(6),
+      fullName: z.string().min(2), role: z.enum(['student', 'mentor', 'admin']),
       phone: z.string().optional(),
     });
     const data = schema.parse(req.body);
     const passwordHash = await bcrypt.hash(data.password, 12);
-
-    const user = await prisma.user.create({
-      data: {
-        email: data.email,
-        passwordHash,
-        fullName: data.fullName,
-        role: data.role,
-        phone: data.phone,
-      },
-      select: { id: true, email: true, fullName: true, role: true, createdAt: true },
-    });
-    res.status(201).json(user);
-  } catch (err) {
-    next(err);
-  }
+    const user = await User.create({ email: data.email, passwordHash, fullName: data.fullName, role: data.role, phone: data.phone });
+    res.status(201).json({ id: user.id, email: user.email, fullName: user.fullName, role: user.role, createdAt: user.createdAt });
+  } catch (err) { next(err); }
 });
 
-// GET /api/admin/stats — Dashboard statistics
+// GET /api/admin/stats
 router.get('/stats', async (req, res, next) => {
   try {
     const [userCount, ticketCount, taskCount, jobCount, openTickets, pendingAppointments] = await Promise.all([
-      prisma.user.count(),
-      prisma.ticket.count(),
-      prisma.task.count(),
-      prisma.jobPost.count(),
-      prisma.ticket.count({ where: { status: 'open' } }),
-      prisma.appointment.count({ where: { status: 'pending' } }),
+      User.countDocuments(), Ticket.countDocuments(), Task.countDocuments(),
+      JobPost.countDocuments(), Ticket.countDocuments({ status: 'open' }),
+      Appointment.countDocuments({ status: 'pending' }),
     ]);
-
-    const roleBreakdown = await prisma.user.groupBy({
-      by: ['role'],
-      _count: { id: true },
-    });
-
+    const roleBreakdown = await User.aggregate([{ $group: { _id: '$role', count: { $sum: 1 } } }]);
     res.json({
-      users: userCount,
-      tickets: ticketCount,
-      tasks: taskCount,
-      jobs: jobCount,
-      openTickets,
-      pendingAppointments,
-      roleBreakdown: roleBreakdown.reduce((acc, r) => ({ ...acc, [r.role]: r._count.id }), {}),
+      users: userCount, tickets: ticketCount, tasks: taskCount, jobs: jobCount,
+      openTickets, pendingAppointments,
+      roleBreakdown: roleBreakdown.reduce((acc, r) => ({ ...acc, [r._id]: r.count }), {}),
     });
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 });
 
 module.exports = router;

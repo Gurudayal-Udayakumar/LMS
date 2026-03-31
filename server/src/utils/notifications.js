@@ -1,15 +1,10 @@
-const prisma = require('../config/database');
+const Notification = require('../models/Notification');
 
 const createNotification = async ({ userId, title, message, type, refId }, io) => {
-  const notification = await prisma.notification.create({
-    data: { userId, title, message, type, refId },
-  });
-
-  // Push real-time notification via Socket.io
+  const notification = await Notification.create({ userId, title, message, type, refId });
   if (io) {
-    io.to(`user:${userId}`).emit('notification', notification);
+    io.to(`user:${userId}`).emit('notification', { ...notification.toObject(), id: notification._id });
   }
-
   return notification;
 };
 

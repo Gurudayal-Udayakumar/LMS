@@ -4,6 +4,7 @@ module.exports = {
   port: parseInt(process.env.PORT) || 5000,
   nodeEnv: process.env.NODE_ENV || 'development',
   clientUrl: process.env.CLIENT_URL || 'http://localhost:5173',
+  mongoUri: process.env.MONGODB_URI || 'mongodb://localhost:27017/lms',
   jwt: {
     secret: process.env.JWT_SECRET || 'default-secret',
     refreshSecret: process.env.JWT_REFRESH_SECRET || 'default-refresh-secret',
